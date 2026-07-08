@@ -58,6 +58,23 @@ def scrape(lines: List[str]) -> Dict[str, Any]:
     return {"tqdm_it_per_s": last_itps, "final_avg_loss": last_loss}
 
 
+def steady_state(step_times: Dict[int, float], warmup_steps: int) -> Optional[float]:
+    """Median wall-clock seconds per step, from client-side timestamps of each step's
+    first appearance, excluding warmup. Immune to tqdm's cumulative average (which the
+    precompute-heavy first step dominates)."""
+    steps = sorted(step_times)
+    deltas = [
+        step_times[s] - step_times[s - 1] for s in steps if s - 1 in step_times and s > warmup_steps
+    ]
+    # sub-50ms deltas are pipe-flush artifacts (several steps surfacing in one read), not steps
+    deltas = [d for d in deltas if d > 0.05]
+    if not deltas:
+        return None
+    deltas.sort()
+    mid = len(deltas) // 2
+    return deltas[mid] if len(deltas) % 2 else (deltas[mid - 1] + deltas[mid]) / 2
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="finetrainers end-to-end run benchmark")
     p.add_argument("--steps", type=int, required=True, help="total train steps in the launch")
@@ -75,16 +92,44 @@ def main(argv=None) -> int:
     if not cmd:
         p.error("provide the launch command after `--`")
 
-    env = dict(os.environ, FINETRAINERS_ENABLE_TIMING="1")
+    # PYTHONUNBUFFERED: tqdm redraws with \r and no newline; a line-buffered child pipe
+    # flushes them in bursts, giving identical client-side step timestamps (0s deltas)
+    env = dict(os.environ, FINETRAINERS_ENABLE_TIMING="1", PYTHONUNBUFFERED="1")
     print(f"  launching: {' '.join(cmd)}\n")
 
     start = time.perf_counter()
-    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     lines: List[str] = []
-    for ln in proc.stdout:  # tee
-        sys.stdout.write(ln)
-        lines.append(ln)
+    step_times: Dict[int, float] = {}
+    total_steps_seen = 0
+    buf = ""
+    fd = proc.stdout.fileno()
+    # os.read returns whatever is available NOW; a text-mode read(N) would block until
+    # N chars accumulate, batching minutes of tqdm redraws under one timestamp.
+    # Split on \r as well as \n — tqdm redraws its bar with \r, so a line iterator
+    # would only see it at the end. Timestamp each step's FIRST appearance client-side;
+    # tqdm's own it/s is a cumulative average.
+    while True:
+        chunk_b = os.read(fd, 65536)
+        if not chunk_b:
+            break
+        chunk = chunk_b.decode("utf-8", errors="replace")
+        sys.stdout.write(chunk)
+        buf += chunk
+        parts = re.split(r"[\r\n]", buf)
+        buf = parts.pop()
+        now = time.perf_counter()
+        for ln in parts:
+            if not ln:
+                continue
+            lines.append(ln)
+            m = STEP_RE.search(ln)
+            if m and int(m.group(2)) == args.steps:
+                step = int(m.group(1))
+                total_steps_seen = max(total_steps_seen, step)
+                step_times.setdefault(step, now)
+    if buf:
+        lines.append(buf)
     proc.wait()
     wall = time.perf_counter() - start
 
@@ -97,6 +142,9 @@ def main(argv=None) -> int:
     # Coarse: assumes uniform step cost; warmup share of wall time is small for short runs.
     steps_per_s = measured_steps / wall if wall else None
 
+    ss_s_per_step = steady_state(step_times, args.warmup_steps)
+    ss_steps_per_s = round(1.0 / ss_s_per_step, 4) if ss_s_per_step else None
+
     result = {
         "label": args.label or "e2e",
         "tier": "end-to-end",
@@ -105,9 +153,14 @@ def main(argv=None) -> int:
         "warmup_steps": args.warmup_steps,
         "stats": {
             "wall_s": round(wall, 2),
+            "steady_state_s_per_step": round(ss_s_per_step, 3) if ss_s_per_step else None,
+            "steady_state_steps_per_s": ss_steps_per_s,
             "steps_per_s_wall": round(steps_per_s, 4) if steps_per_s else None,
             "tqdm_it_per_s": scraped["tqdm_it_per_s"],
-            "throughput_per_s": scraped["tqdm_it_per_s"],  # prefer tqdm's steady-state number
+            # steady-state (client-side per-step wall deltas, warmup excluded) is the
+            # honest throughput; tqdm's it/s is a cumulative average that the
+            # precompute-heavy first step drags down
+            "throughput_per_s": ss_steps_per_s or scraped["tqdm_it_per_s"],
         },
         "final_avg_loss": scraped["final_avg_loss"],
         "env": {"git_sha": git_sha(), "timing_enabled": True},
@@ -116,8 +169,9 @@ def main(argv=None) -> int:
     s = result["stats"]
     print(f"\n  {result['label']}  [{git_sha()}]")
     print(f"    wall {s['wall_s']}s over {args.steps} steps")
+    print(f"    steady-state: {s['steady_state_s_per_step']}s/step ({s['steady_state_steps_per_s']} steps/s), warmup {args.warmup_steps} excluded")
     print(f"    steps/s (wall, warmup-excluded): {s['steps_per_s_wall']}")
-    print(f"    tqdm steady-state it/s: {s['tqdm_it_per_s']}")
+    print(f"    tqdm cumulative it/s: {s['tqdm_it_per_s']}")
     print(f"    final avg loss: {result['final_avg_loss']}")
     print("    note: per-phase timing/* is captured by the run's tracker "
           "(enable a wandb/jsonl sink); process-level throughput is what this tier reports.")

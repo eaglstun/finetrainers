@@ -1,0 +1,33 @@
+{
+  "label": "LTX 2B fwd+bwd ckpt bf16 seq2688 mps",
+  "spec": "/Users/eeaglstun/Documents/dev/finetrainers/.claude/skills/benchmark/scripts/specs/ltx_transformer_fwd_bwd.py",
+  "warmup": 3,
+  "iters": 15,
+  "items_per_iter": 1.0,
+  "seed": 42,
+  "stats": {
+    "mean_ms": 5161.3081,
+    "median_ms": 5162.0805,
+    "p90_ms": 5425.732,
+    "std_ms": 198.7453,
+    "min_ms": 4831.6704,
+    "max_ms": 5491.7788,
+    "cv": 0.0385,
+    "throughput_per_s": 0.194
+  },
+  "memory": {
+    "device": "mps",
+    "driver_allocated_mb": 9730.81,
+    "delta_mb": 5594.34,
+    "note": "MPS has no peak-memory counter; delta_mb is driver-allocation growth."
+  },
+  "env": {
+    "device": "mps",
+    "torch": "2.12.1",
+    "git_sha": "e1521bc",
+    "dirty": true,
+    "python": "3.12.13",
+    "timing_enabled_env": null,
+    "platform": "apple-silicon-mps"
+  }
+}

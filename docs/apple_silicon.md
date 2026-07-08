@@ -58,6 +58,31 @@ python -m pytest -s tests/mps/test_cpu_mps_parity.py
 
 The test skips automatically on machines without MPS, so it is safe in CI.
 
+## Performance notes (Batch 2 census, 2026-07-08)
+
+**MPS fallback census: zero fallbacks.** A full LTX-Video LoRA run (T5-XXL text encoding, VAE
+video encoding, transformer forward/backward, AdamW, checkpointing) on torch 2.12.1 emitted no
+`aten::*` CPU-fallback warnings — the entire hot path runs natively on MPS. (Verified against a
+known-missing op to confirm the detection works; re-run the census after any torch upgrade by
+grepping a full training log for `not currently supported on the MPS backend`.)
+
+**Gradient checkpointing is mandatory at 512×768×49, not a speed knob.** Without it, the backward
+graph of the 2B transformer at latent sequence length 2688 allocates ~66 GB — it does not fit in
+64 GB unified memory and thrashes swap (~80 s/iter measured). With checkpointing, a full training
+step is ~5.5–7 s at this shape.
+
+**Where a training step goes** (M-series 64 GB, torch 2.12.1, bf16, checkpointing on): a full
+LoRA training step is **~7–9 s** (e2e baseline steady-state 7.8 s/step; ~6–7 s observed on a fully
+idle machine). The raw transformer forward+backward is ~5.2 s of that (micro benchmark median
+5162 ms, cv 3.9%); the remainder is LoRA adapter compute, batch preparation, and per-step
+`.item()` syncs. The optimizer step is ~0.02 s. Speedups must come from the transformer compute
+itself (attention kernel path, checkpointing granularity), not the data/optimizer path. Step 1
+is minutes-long (precomputation + MPS shader compilation) — always exclude it from timing.
+
+Benchmark baselines live in `.claude/skills/benchmark/baselines/` (micro:
+`ltx_transformer_fwd_bwd`, end-to-end: the `train_mps.sh` config); see the `benchmark` skill for
+running them against changes.
+
 ## Dependency notes for macOS
 
 - **decord** has no macOS arm64 wheels. It is now an optional import: with `datasets >= 4.0.0`
