@@ -1,13 +1,16 @@
 """
-CPU <-> MPS numeric parity for the LTX-Video transformer forward.
+CPU <-> MPS numeric parity for supported model transformers.
 
 MPS failures are usually silent (wrong numbers, not crashes), so "training ran" is not evidence of
-correctness. This test runs an identical seeded forward on CPU and MPS and asserts the outputs
+correctness. These tests run an identical seeded forward on CPU and MPS and assert the outputs
 match within a dtype-appropriate tolerance:
 
   - fp32: atol/rtol 1e-4 — differences come only from GEMM accumulation-order reassociation.
   - bf16: atol/rtol 5e-2 — bf16 has ~2-3 significant decimal digits; per-kernel accumulation
     differences between backends compound across layers.
+
+Inputs are generated on CPU under a fixed seed and then moved to the device — generating directly
+on the device would draw from that device's own RNG stream and break parity by construction.
 
 Run with: python -m pytest -s tests/mps/test_cpu_mps_parity.py
 Skips cleanly on machines without an MPS device (e.g. CI on Linux).
@@ -20,53 +23,22 @@ import pytest
 import torch
 
 from ..models.ltx_video.base_specification import DummyLTXVideoModelSpecification
+from ..models.wan.base_specification import DummyWanModelSpecification
 
 
 pytestmark = pytest.mark.skipif(not torch.backends.mps.is_available(), reason="Requires an Apple Silicon MPS device")
 
 
-def _make_transformer(dtype: torch.dtype) -> torch.nn.Module:
-    spec = DummyLTXVideoModelSpecification(transformer_dtype=dtype)
-    transformer = spec.load_diffusion_models()["transformer"]
-    transformer.eval()
-    return transformer
+class ParityTestMixin:
+    """Per-model subclasses provide make_transformer(dtype) and make_inputs(device, dtype)."""
 
-
-def _make_inputs(device: torch.device, dtype: torch.dtype) -> dict:
-    # Shapes follow the dummy LTX transformer config: in_channels=8, caption_channels=32,
-    # patch_size=1, so sequence length = num_frames * height * width in latent space.
-    batch_size, num_frames, height, width = 1, 2, 4, 4
-    caption_sequence_length, caption_channels = 8, 32
-
-    generator = torch.Generator(device="cpu").manual_seed(42)
-    hidden_states = torch.randn(batch_size, num_frames * height * width, 8, generator=generator, dtype=torch.float32)
-    encoder_hidden_states = torch.randn(
-        batch_size, caption_sequence_length, caption_channels, generator=generator, dtype=torch.float32
-    )
-    timestep = torch.tensor([500], dtype=torch.long)
-    encoder_attention_mask = torch.ones(batch_size, caption_sequence_length, dtype=torch.bool)
-
-    return {
-        "hidden_states": hidden_states.to(device=device, dtype=dtype),
-        "encoder_hidden_states": encoder_hidden_states.to(device=device, dtype=dtype),
-        "timestep": timestep.to(device),
-        "encoder_attention_mask": encoder_attention_mask.to(device),
-        "num_frames": num_frames,
-        "height": height,
-        "width": width,
-        "rope_interpolation_scale": (1.0, 1.0, 1.0),
-        "return_dict": False,
-    }
-
-
-class CPUMPSParityTest(unittest.TestCase):
     def _run_parity(self, dtype: torch.dtype, atol: float, rtol: float) -> None:
-        transformer_cpu = _make_transformer(dtype)
+        transformer_cpu = self.make_transformer(dtype)
         transformer_mps = copy.deepcopy(transformer_cpu).to("mps")
 
         with torch.no_grad():
-            output_cpu = transformer_cpu(**_make_inputs(torch.device("cpu"), dtype))[0]
-            output_mps = transformer_mps(**_make_inputs(torch.device("mps"), dtype))[0]
+            output_cpu = transformer_cpu(**self.make_inputs(torch.device("cpu"), dtype))[0]
+            output_mps = transformer_mps(**self.make_inputs(torch.device("mps"), dtype))[0]
 
         output_cpu = output_cpu.float()
         output_mps = output_mps.float().cpu()
@@ -85,3 +57,70 @@ class CPUMPSParityTest(unittest.TestCase):
 
     def test_transformer_forward_parity_bf16(self):
         self._run_parity(torch.bfloat16, atol=5e-2, rtol=5e-2)
+
+
+class LTXVideoCPUMPSParityTest(ParityTestMixin, unittest.TestCase):
+    def make_transformer(self, dtype: torch.dtype) -> torch.nn.Module:
+        spec = DummyLTXVideoModelSpecification(transformer_dtype=dtype)
+        transformer = spec.load_diffusion_models()["transformer"]
+        transformer.eval()
+        return transformer
+
+    def make_inputs(self, device: torch.device, dtype: torch.dtype) -> dict:
+        # Shapes follow the dummy LTX transformer config: in_channels=8, caption_channels=32,
+        # patch_size=1, so sequence length = num_frames * height * width in latent space.
+        batch_size, num_frames, height, width = 1, 2, 4, 4
+        caption_sequence_length, caption_channels = 8, 32
+
+        generator = torch.Generator(device="cpu").manual_seed(42)
+        hidden_states = torch.randn(
+            batch_size, num_frames * height * width, 8, generator=generator, dtype=torch.float32
+        )
+        encoder_hidden_states = torch.randn(
+            batch_size, caption_sequence_length, caption_channels, generator=generator, dtype=torch.float32
+        )
+        timestep = torch.tensor([500], dtype=torch.long)
+        encoder_attention_mask = torch.ones(batch_size, caption_sequence_length, dtype=torch.bool)
+
+        return {
+            "hidden_states": hidden_states.to(device=device, dtype=dtype),
+            "encoder_hidden_states": encoder_hidden_states.to(device=device, dtype=dtype),
+            "timestep": timestep.to(device),
+            "encoder_attention_mask": encoder_attention_mask.to(device),
+            "num_frames": num_frames,
+            "height": height,
+            "width": width,
+            "rope_interpolation_scale": (1.0, 1.0, 1.0),
+            "return_dict": False,
+        }
+
+
+class WanCPUMPSParityTest(ParityTestMixin, unittest.TestCase):
+    def make_transformer(self, dtype: torch.dtype) -> torch.nn.Module:
+        spec = DummyWanModelSpecification(transformer_dtype=dtype)
+        transformer = spec.load_diffusion_models()["transformer"]
+        transformer.eval()
+        return transformer
+
+    def make_inputs(self, device: torch.device, dtype: torch.dtype) -> dict:
+        # Shapes follow the dummy Wan transformer config: 5D latent input (B, C, F, H, W) with
+        # in_channels=16, patch_size=(1, 2, 2), text_dim=32; patched sequence length
+        # F * H/2 * W/2 = 32 stays within the dummy's rope_max_seq_len=32.
+        batch_size, in_channels, num_frames, height, width = 1, 16, 2, 8, 8
+        caption_sequence_length, text_dim = 8, 32
+
+        generator = torch.Generator(device="cpu").manual_seed(42)
+        hidden_states = torch.randn(
+            batch_size, in_channels, num_frames, height, width, generator=generator, dtype=torch.float32
+        )
+        encoder_hidden_states = torch.randn(
+            batch_size, caption_sequence_length, text_dim, generator=generator, dtype=torch.float32
+        )
+        timestep = torch.tensor([500], dtype=torch.long)
+
+        return {
+            "hidden_states": hidden_states.to(device=device, dtype=dtype),
+            "encoder_hidden_states": encoder_hidden_states.to(device=device, dtype=dtype),
+            "timestep": timestep.to(device),
+            "return_dict": False,
+        }

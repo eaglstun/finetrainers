@@ -36,15 +36,32 @@ Speed and memory optimizations are explicitly out of scope for now.
   e.g. `FINETRAINERS_DEVICE=cpu` to run a CPU-only comparison on the same machine. Without it the
   device is auto-detected (MPS on Apple Silicon).
 
-## Quickstart: LTX-Video LoRA
+## Quickstart
 
 ```bash
+# LTX-Video LoRA (2B) — the reference recipe
 bash examples/training/sft/ltx_video/crush_smol_lora/train_mps.sh
+
+# Wan T2V LoRA (1.3B)
+bash examples/training/sft/wan/crush_smol_lora/train_mps.sh
 ```
 
-The script is the single-device mirror of `train.sh` in the same directory: Accelerate backend,
+Each script is the single-device mirror of `train.sh` in the same directory: Accelerate backend,
 all parallel degrees 1, native attention, bf16, precomputation enabled, and a small step count for
 a first smoke run. Raise `--train_steps` once you've confirmed loss goes down on your machine.
+
+### Validated models
+
+| Model           | Config                    | Step time (M-series 64 GB) | Notes                                      |
+| --------------- | ------------------------- | -------------------------- | ------------------------------------------ |
+| LTX-Video 2B    | LoRA bf16, 512×768×49     | ~7–9 s                     | reference recipe; parity + e2e benchmarked |
+| Wan2.1 T2V 1.3B | LoRA bf16, **320×512×49** | ~32–36 s                   | see resolution limit below                 |
+
+**Wan resolution limit (upstream bug):** at 480×832×49 (~20k tokens) the attention matmul takes
+PyTorch's _tiled_ bmm path on MPS, which segfaults inside `MPSNDArray` encode
+(`at::native::mps::tiled_bmm_out_mps_impl`, torch 2.12.1). 320×512×49 (~8k tokens) stays under
+the tiling threshold and trains correctly. Re-test after torch upgrades; candidate for an
+upstream PyTorch issue.
 
 ## Verifying correctness (CPU ↔ MPS parity)
 
