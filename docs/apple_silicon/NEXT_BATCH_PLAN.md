@@ -1,6 +1,6 @@
 # finetrainers MPS — Batch 2: Measure, Speed Up, Generalize
 
-**Status:** plan, ready to execute · **Branch:** `apple-silicon-mps` · **Executor:** Fable
+**Status:** 5A ✅ + 5C ✅ + 5D docs ✅ (2026-07-08) · 5B pending an idle machine · upstream PRs (5D.13) awaiting Eric's call · **Branch:** `apple-silicon-mps` · **Executor:** Fable
 **Author:** Claude (Fable 5) · **Date:** 2026-07-08 · **Predecessor:** `PORT_PLAN.md` (phases 1–4, ✅ complete)
 
 Batch 1 delivered _correctness_: LTX-Video LoRA trains on MPS (plain `python train.py`,

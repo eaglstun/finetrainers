@@ -1,6 +1,6 @@
 # finetrainers → Apple Silicon (MPS) Port Plan
 
-**Status:** plan, ready to execute · **Branch:** `apple-silicon-mps` · **Executor:** Fable
+**Status:** ✅ executed 2026-07-08 — all §6 DoD items met (see `docs/apple_silicon.md`) · **Branch:** `apple-silicon-mps` · **Executor:** Fable
 **Author of plan:** Claude (Opus 4.8) · **Date:** 2026-07-08
 
 This is an executable spec. It assumes the reader is comfortable in the finetrainers

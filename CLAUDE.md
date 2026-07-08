@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `finetrainers` is a library for training diffusion models (mostly video, some image) — LoRA and full-rank finetuning, plus conditional control training. It targets multi-backend distributed training on top of `diffusers`, `accelerate`, `peft`, and PyTorch's native distributed (DTensor/FSDP2). This is the `main` (development) branch; it is explicitly unstable — stable behavior lives on release tags (`v0.2.0`, etc.).
 
+**This fork adds Apple Silicon (MPS) support** — a single-process, world_size=1 Accelerate lane (see "Apple Silicon" below and `docs/apple_silicon.md`). Local dev on this Mac uses the repo's `.venv` (Python 3.12, created with uv) — the pyenv-global Python is too new for several ML wheels. Use `.venv/bin/python` / `.venv/bin/ruff`.
+
 Requires `diffusers` from `main` (`pip install git+https://github.com/huggingface/diffusers`), not just the pinned `>=0.32.1`. Use PyTorch 2.5.1+ — older versions produce black videos, OOM, or silent breakage.
 
 ## Commands
@@ -16,7 +18,7 @@ make quality    # ruff format --check + ruff check (CI gate; must pass)
 pip install -e ".[dev]"   # installs pytest + ruff pinned versions
 ```
 
-Training is launched via `train.py` under a distributed launcher — never `python train.py` directly for real runs. The backend (`--parallel_backend`) decides the launcher:
+Training is launched via `train.py` under a distributed launcher — never `python train.py` directly for real runs (**exception: on Apple Silicon, plain `python train.py` is the only correct launch** — see the Apple Silicon section). The backend (`--parallel_backend`) decides the launcher:
 
 ```bash
 # PTD backend (PyTorch native distributed — the default in current examples)
@@ -42,6 +44,31 @@ torchrun --nnodes=1 --nproc_per_node 2 -m pytest -s tests/trainer/test_sft_train
 # Context-parallel attention tests
 torchrun --nnodes 1 --nproc_per_node 2 -m pytest -s tests/models/attention_dispatch.py::RingAttentionCP2Test
 ```
+
+## Apple Silicon (MPS) — this fork's addition
+
+Single-device lane only: `--parallel_backend accelerate`, every parallel degree 1, launched with
+**plain `python train.py`** — no `torchrun`, no `accelerate launch` (launcher env vars make
+Accelerate pick `gloo`/MULTI_CPU and the device silently becomes CPU). User doc:
+`docs/apple_silicon.md`. Recipes: `examples/training/sft/{ltx_video,wan}/crush_smol_lora/train_mps.sh`.
+
+Key seams (grep before editing — line numbers drift):
+
+- Device chokepoint: `utils/torch.py::get_device_info()` (honors `FINETRAINERS_DEVICE` env; MPS→CUDA→CPU fallback).
+- MPS guardrails: `args.py::_validate_device_args` — errors loudly on parallel degrees > 1, fp8 layerwise upcasting, bitsandbytes optimizers, non-native attention providers. Only fires when the resolved device is `mps`; programmatic `BaseArgs` (tests) bypasses it.
+- Accelerate ws=1 trap: `parallel/accelerate.py` passes `InitProcessGroupKwargs` only when `LOCAL_RANK` is set.
+- MPS-safe utilities: `utils/memory.py` (`reset_peak_memory_stats`, `free_memory`); grad-clipping `foreach` is device-aware in both trainers; checkpoint `states.pt` loads with `weights_only=False` (torch≥2.6).
+- Video decode: decord is optional (no arm64 wheels); `data/dataset.py` dispatches by `datasets` version — torchcodec for `datasets>=4.0`.
+
+Tests (plain pytest, skip without MPS): `tests/mps/test_cpu_mps_parity.py` (CPU-as-oracle forward
+parity, per-model mixin) plus the dp_degree_1 Accelerate trainer tests. Set
+`PYTORCH_ENABLE_MPS_FALLBACK=1` for training runs. Benchmarks: the `benchmark` skill
+(`.claude/skills/benchmark/`), baselines in `.claude/skills/benchmark/baselines/`.
+
+Known limits: gradient checkpointing is mandatory at LTX 512×768×49 (backward graph > 64 GB
+without it); Wan trains at 320×512×49 but segfaults at 480×832×49 (upstream torch MPS tiled-bmm
+bug, documented in `docs/apple_silicon.md`); don't set `HF_HUB_ENABLE_HF_TRANSFER=1` (silent
+download hangs).
 
 Tests use tiny dummy model specifications in `tests/models/<model>/` (not the real checkpoints), so they run on modest hardware.
 

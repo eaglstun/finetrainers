@@ -3,10 +3,11 @@
 Finetrainers is a work-in-progress library to support (accessible) training of diffusion models and various commonly used training algorithms.
 
 > [!TIP]
-> **This fork adds Apple Silicon (MPS) support** — single-device LoRA training on M-series Macs, no CUDA required. LTX-Video is the validated model. See [docs/apple_silicon.md](./docs/apple_silicon.md) for the supported/unsupported matrix and quickstart:
+> **This fork adds Apple Silicon (MPS) support** — single-device LoRA training on M-series Macs, no CUDA required. Validated models: LTX-Video 2B and Wan2.1 T2V 1.3B, with CPU↔MPS parity tests and saved performance baselines. See [docs/apple_silicon.md](./docs/apple_silicon.md) for the supported/unsupported matrix and quickstart:
 >
 > ```bash
-> bash examples/training/sft/ltx_video/crush_smol_lora/train_mps.sh
+> bash examples/training/sft/ltx_video/crush_smol_lora/train_mps.sh   # LTX-Video 2B
+> bash examples/training/sft/wan/crush_smol_lora/train_mps.sh        # Wan2.1 T2V 1.3B
 > ```
 
 <table align="center">
@@ -76,7 +77,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 ## News
 
-- 🔥 **2026-07-08**: Apple Silicon (MPS) support added in this fork — LTX-Video LoRA trains on M-series Macs with CPU↔MPS parity tests!
+- 🔥 **2026-07-08**: Apple Silicon (MPS) support added in this fork — LTX-Video and Wan T2V LoRA train on M-series Macs, with CPU↔MPS parity tests and benchmark baselines!
 - 🔥 **2025-04-25**: Support for different attention providers added!
 - 🔥 **2025-04-21**: Wan I2V supported added!
 - 🔥 **2025-04-12**: Channel-concatenated control conditioning support added for CogView4 and Wan!
