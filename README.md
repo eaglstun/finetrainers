@@ -2,6 +2,13 @@
 
 Finetrainers is a work-in-progress library to support (accessible) training of diffusion models and various commonly used training algorithms.
 
+> [!TIP]
+> **This fork adds Apple Silicon (MPS) support** — single-device LoRA training on M-series Macs, no CUDA required. LTX-Video is the validated model. See [docs/apple_silicon.md](./docs/apple_silicon.md) for the supported/unsupported matrix and quickstart:
+>
+> ```bash
+> bash examples/training/sft/ltx_video/crush_smol_lora/train_mps.sh
+> ```
+
 <table align="center">
 <tr>
   <td align="center"><video src="https://github.com/user-attachments/assets/aad07161-87cb-4784-9e6b-16d06581e3e5">Your browser does not support the video tag.</video></td>
@@ -38,23 +45,26 @@ Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/f
 #### Using the main branch
 
 To get started quickly with example training scripts on the main development branch, refer to the following:
+
 - [LTX-Video Pika Effects Crush](./examples/training/sft/ltx_video/crush_smol_lora/)
 - [CogVideoX Pika Effects Crush](./examples/training/sft/cogvideox/crush_smol_lora/)
 - [Wan T2V Pika Effects Crush](./examples/training/sft/wan/crush_smol_lora/)
 
 The following are some simple datasets/HF orgs with good datasets to test training with quickly:
+
 - [Disney Video Generation Dataset](https://huggingface.co/datasets/Wild-Heart/Disney-VideoGeneration-Dataset)
 - [bigdatapw Video Dataset Collection](https://huggingface.co/bigdata-pw)
 - [Finetrainers HF Dataset Collection](https://huggingface.co/finetrainers)
 
 Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./examples/training/) to learn more about supported models for training & example reproducible training launch scripts. For a full list of arguments that can be set for training, refer to [`docs/args`](./docs/args.md).
 
-> [!IMPORTANT] 
+> [!IMPORTANT]
 > It is recommended to use Pytorch 2.5.1 or above for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested. For fully reproducible training, please use the same environment as mentioned in [environment.md](./docs/environment.md).
 
 ## Features
 
 - DDP, FSDP-2 & HSDP, CP support
+- Apple Silicon (MPS) single-device training — see [docs/apple_silicon.md](./docs/apple_silicon.md)
 - LoRA and full-rank finetuning; Conditional Control training
 - Memory-efficient single-GPU training
 - Multiple attention backends supported - `flash`, `flex`, `sage`, `xformers` (see [attention](./docs/models/attention.md) docs)
@@ -66,6 +76,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 ## News
 
+- 🔥 **2026-07-08**: Apple Silicon (MPS) support added in this fork — LTX-Video LoRA trains on M-series Macs with CPU↔MPS parity tests!
 - 🔥 **2025-04-25**: Support for different attention providers added!
 - 🔥 **2025-04-21**: Wan I2V supported added!
 - 🔥 **2025-04-12**: Channel-concatenated control conditioning support added for CogView4 and Wan!
@@ -94,18 +105,18 @@ The following trainers are currently supported:
 
 <div align="center">
 
-| **Model Name**                                 | **Tasks**     | **Min. LoRA VRAM<sup>*</sup>**     | **Min. Full Finetuning VRAM<sup>^</sup>**     |
-|:----------------------------------------------:|:-------------:|:----------------------------------:|:---------------------------------------------:|
-| [LTX-Video](./docs/models/ltx_video.md)        | Text-to-Video | 5 GB                               | 21 GB                                         |
-| [HunyuanVideo](./docs/models/hunyuan_video.md) | Text-to-Video | 32 GB                              | OOM                                           |
-| [CogVideoX-5b](./docs/models/cogvideox.md)     | Text-to-Video | 18 GB                              | 53 GB                                         |
-| [Wan](./docs/models/wan.md)                    | Text-to-Video | TODO                               | TODO                                          |
-| [CogView4](./docs/models/cogview4.md)          | Text-to-Image | TODO                               | TODO                                          |
-| [Flux](./docs/models/flux.md)                  | Text-to-Image | TODO                               | TODO                                          |
+|                 **Model Name**                 |   **Tasks**   | **Min. LoRA VRAM<sup>\*</sup>** | **Min. Full Finetuning VRAM<sup>^</sup>** |
+| :--------------------------------------------: | :-----------: | :-----------------------------: | :---------------------------------------: |
+|    [LTX-Video](./docs/models/ltx_video.md)     | Text-to-Video |              5 GB               |                   21 GB                   |
+| [HunyuanVideo](./docs/models/hunyuan_video.md) | Text-to-Video |              32 GB              |                    OOM                    |
+|   [CogVideoX-5b](./docs/models/cogvideox.md)   | Text-to-Video |              18 GB              |                   53 GB                   |
+|          [Wan](./docs/models/wan.md)           | Text-to-Video |              TODO               |                   TODO                    |
+|     [CogView4](./docs/models/cogview4.md)      | Text-to-Image |              TODO               |                   TODO                    |
+|         [Flux](./docs/models/flux.md)          | Text-to-Image |              TODO               |                   TODO                    |
 
 </div>
 
-<sub><sup>*</sup>Noted for training-only, no validation, at resolution `49x512x768`, rank 128, with pre-computation, using **FP8** weights & gradient checkpointing. Pre-computation of conditions and latents may require higher limits (but typically under 16 GB).</sub><br/>
+<sub><sup>\*</sup>Noted for training-only, no validation, at resolution `49x512x768`, rank 128, with pre-computation, using **FP8** weights & gradient checkpointing. Pre-computation of conditions and latents may require higher limits (but typically under 16 GB).</sub><br/>
 <sub><sup>^</sup>Noted for training-only, no validation, at resolution `49x512x768`, with pre-computation, using **BF16** weights & gradient checkpointing.</sub>
 
 If you would like to use a custom dataset, refer to the dataset preparation guide [here](./docs/dataset/README.md).
@@ -113,6 +124,7 @@ If you would like to use a custom dataset, refer to the dataset preparation guid
 ## Featured Projects 🔥
 
 Checkout some amazing projects citing `finetrainers`:
+
 - [Diffusion as Shader](https://github.com/IGL-HKUST/DiffusionAsShader)
 - [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1) & [SkyReels-A2](https://github.com/SkyworkAI/SkyReels-A2)
 - [Aether](https://github.com/OpenRobotLab/Aether)
@@ -122,11 +134,12 @@ Checkout some amazing projects citing `finetrainers`:
 - [Feizc's Video-In-Context](https://github.com/feizc/Video-In-Context)
 
 Checkout the following UIs built for `finetrainers`:
+
 - [jbilcke's VideoModelStudio](https://github.com/jbilcke-hf/VideoModelStudio)
 - [neph1's finetrainers-ui](https://github.com/neph1/finetrainers-ui)
 
 ## Acknowledgements
 
-* `finetrainers` builds on top of & takes inspiration from great open-source libraries - `transformers`, `accelerate`, `torchtune`, `torchtitan`, `peft`, `diffusers`, `bitsandbytes`, `torchao` and `deepspeed` - to name a few.
-* Some of the design choices of `finetrainers` were inspired by [`SimpleTuner`](https://github.com/bghira/SimpleTuner).
-`
+- `finetrainers` builds on top of & takes inspiration from great open-source libraries - `transformers`, `accelerate`, `torchtune`, `torchtitan`, `peft`, `diffusers`, `bitsandbytes`, `torchao` and `deepspeed` - to name a few.
+- Some of the design choices of `finetrainers` were inspired by [`SimpleTuner`](https://github.com/bghira/SimpleTuner).
+  `
