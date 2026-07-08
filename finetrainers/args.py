@@ -9,7 +9,7 @@ import torch
 from .config import SUPPORTED_MODEL_CONFIGS, ModelType, TrainingType
 from .logging import get_logger
 from .parallel import ParallelBackendEnum
-from .utils import ArgsConfigMixin, get_non_null_items
+from .utils import ArgsConfigMixin, get_device_info, get_non_null_items
 
 
 logger = get_logger()
@@ -700,6 +700,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _validate_args(args: BaseArgs):
+    _validate_device_args(args)
     _validate_model_args(args)
     _validate_dataset_args(args)
     _validate_validation_args(args)
@@ -994,6 +995,39 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.float32_matmul_precision = args.float32_matmul_precision
 
     return result_args
+
+
+# SDPA is the only attention path with reliable MPS kernels; everything else requires CUDA
+_MPS_SUPPORTED_ATTENTION_PROVIDERS = {"native", "_native_math"}
+
+
+def _validate_device_args(args: BaseArgs):
+    device_type, _ = get_device_info()
+    if device_type != "mps":
+        return
+
+    if any(x > 1 for x in [args.pp_degree, args.dp_degree, args.dp_shards, args.cp_degree, args.tp_degree]):
+        raise ValueError(
+            "Apple Silicon (MPS) supports single-device training only. Use `--parallel_backend accelerate` "
+            "with all parallel degrees (pp/dp/dp_shards/cp/tp) set to 1."
+        )
+    if len(args.layerwise_upcasting_modules) > 0:
+        raise ValueError(
+            "Layerwise upcasting stores weights in float8, which is not supported on MPS. Remove "
+            "`--layerwise_upcasting_modules`; bf16 is the supported low-precision dtype on Apple Silicon."
+        )
+    if "bnb" in args.optimizer:
+        raise ValueError(
+            f"Optimizer '{args.optimizer}' requires bitsandbytes, which is CUDA-only. Use `--optimizer adamw` "
+            "(or `adam`) on Apple Silicon."
+        )
+    for provider_str in [*(args.attn_provider_training or []), *(args.attn_provider_inference or [])]:
+        provider = provider_str.split(":")[-1]
+        if provider not in _MPS_SUPPORTED_ATTENTION_PROVIDERS:
+            raise ValueError(
+                f"Attention provider '{provider}' is not supported on MPS. Use `native` (PyTorch SDPA), the "
+                "only attention provider available on Apple Silicon."
+            )
 
 
 def _validate_model_args(args: BaseArgs):

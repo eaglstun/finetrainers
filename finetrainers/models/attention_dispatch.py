@@ -70,12 +70,27 @@ if is_torch_version(">=", "2.5.0"):
 
 if is_torch_version(">=", "2.6.0"):
     from torch.distributed.tensor.experimental._attention import (
-        _AttentionOp,
         _cp_options,
         _templated_ring_attention,
-        _templated_ring_attention_backward,
         set_rotate_method,
     )
+
+    # torch>=2.11 removed these private symbols; they are only needed for context-parallel ring attention
+    try:
+        from torch.distributed.tensor.experimental._attention import _AttentionOp
+    except ImportError:
+
+        class _AttentionOp:
+            def __init__(self, *args, **kwargs):
+                raise OptionalDependencyNotAvailable(
+                    "`_AttentionOp` is not available in this version of PyTorch. Context parallel ring attention "
+                    "requires a PyTorch version that provides `torch.distributed.tensor.experimental._attention._AttentionOp`."
+                )
+
+    try:
+        from torch.distributed.tensor.experimental._attention import _templated_ring_attention_backward
+    except ImportError:
+        _templated_ring_attention_backward = None
 else:
     _cp_options = None
     _templated_ring_attention = None

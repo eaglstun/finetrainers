@@ -224,9 +224,18 @@ def expand_tensor_dims(tensor: torch.Tensor, ndim: int) -> torch.Tensor:
 def get_device_info():
     from torch._utils import _get_available_device_type, _get_device_module
 
-    device_type = _get_available_device_type()
+    device_type = os.environ.get("FINETRAINERS_DEVICE", "").lower() or None
+    if device_type is not None and device_type not in ("cuda", "mps", "cpu"):
+        raise ValueError(f"Unsupported FINETRAINERS_DEVICE: {device_type}. Choose from 'cuda', 'mps' or 'cpu'.")
     if device_type is None:
-        device_type = "cuda"
+        device_type = _get_available_device_type()
+    if device_type is None:
+        if torch.backends.mps.is_available():
+            device_type = "mps"
+        elif torch.cuda.is_available():
+            device_type = "cuda"
+        else:
+            device_type = "cpu"
     device_module = _get_device_module(device_type)
     return device_type, device_module
 

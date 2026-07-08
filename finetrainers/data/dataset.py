@@ -25,9 +25,27 @@ from finetrainers.utils import find_files
 from finetrainers.utils.import_utils import is_datasets_version
 
 
-import decord  # isort:skip
+try:
+    import decord  # isort:skip
 
-decord.bridge.set_bridge("torch")
+    decord.bridge.set_bridge("torch")
+except ImportError:
+    # decord has no macOS arm64 wheels; datasets>=3.4.0 decodes video with torchvision or torchcodec instead
+    decord = None
+
+try:
+    from torchcodec.decoders import VideoDecoder as _TorchCodecVideoDecoder  # isort:skip
+except ImportError:
+    _TorchCodecVideoDecoder = None
+
+# Video sample types a dataset iterator may yield, depending on the installed `datasets` version
+_VIDEO_READER_TYPES = ()
+if decord is not None:
+    _VIDEO_READER_TYPES += (decord.VideoReader,)
+if hasattr(torchvision.io, "video_reader"):
+    _VIDEO_READER_TYPES += (torchvision.io.video_reader.VideoReader,)
+if _TorchCodecVideoDecoder is not None:
+    _VIDEO_READER_TYPES += (_TorchCodecVideoDecoder,)
 
 logger = get_logger()
 
@@ -724,7 +742,7 @@ class IterableDatasetPreprocessingWrapper(
             for key in sample.keys():
                 if isinstance(sample[key], PIL.Image.Image):
                     sample[key] = _preprocess_image(sample[key])
-                elif isinstance(sample[key], (decord.VideoReader, torchvision.io.video_reader.VideoReader)):
+                elif isinstance(sample[key], _VIDEO_READER_TYPES):
                     sample[key] = _preprocess_video(sample[key])
 
             if self.dataset_type == "image":
@@ -1017,17 +1035,17 @@ def _preprocess_image(image: PIL.Image.Image) -> torch.Tensor:
 
 if is_datasets_version("<", "3.4.0"):
 
-    def _preprocess_video(video: decord.VideoReader) -> torch.Tensor:
+    def _preprocess_video(video: "decord.VideoReader") -> torch.Tensor:
         video = video.get_batch(list(range(len(video))))
         video = video.permute(0, 3, 1, 2).contiguous()
         video = video.float() / 127.5 - 1.0
         return video
 
-else:
+elif is_datasets_version("<", "4.0.0"):
     # Hardcode max frames for now. Ideally, we should allow user to set this and handle it in IterableDatasetPreprocessingWrapper
     MAX_FRAMES = 4096
 
-    def _preprocess_video(video: torchvision.io.video_reader.VideoReader) -> torch.Tensor:
+    def _preprocess_video(video: "torchvision.io.video_reader.VideoReader") -> torch.Tensor:
         frames = []
         # Error driven data loading! torchvision does not expose length of video
         try:
@@ -1036,5 +1054,13 @@ else:
         except StopIteration:
             pass
         video = torch.stack(frames)
+        video = video.float() / 127.5 - 1.0
+        return video
+
+else:
+    # datasets>=4.0.0 decodes video with torchcodec
+
+    def _preprocess_video(video: "_TorchCodecVideoDecoder") -> torch.Tensor:
+        video = video.get_all_frames().data
         video = video.float() / 127.5 - 1.0
         return video

@@ -1,0 +1,40 @@
+{
+  "label": "example fwd, cpu, bf16",
+  "spec": "/Users/eeaglstun/Documents/dev/finetrainers/.claude/skills/benchmark/scripts/specs/example_forward.py",
+  "warmup": 5,
+  "iters": 40,
+  "items_per_iter": 8.0,
+  "seed": 42,
+  "stats": {
+    "mean_ms": 0.6029,
+    "median_ms": 0.6151,
+    "p90_ms": 0.6483,
+    "std_ms": 0.0431,
+    "min_ms": 0.4931,
+    "max_ms": 0.6762,
+    "cv": 0.0714,
+    "throughput_per_s": 13005.487
+  },
+  "memory": {
+    "device": "cpu",
+    "note": "no device-memory tracking on cpu"
+  },
+  "env": {
+    "device": "cpu",
+    "torch": "2.11.0",
+    "git_sha": "078dda9",
+    "dirty": true,
+    "python": "3.14.2",
+    "timing_enabled_env": null
+  },
+  "parity": {
+    "checked": true,
+    "passed": true,
+    "rtol": 0.02,
+    "atol": 0.02,
+    "max_abs": 0.0,
+    "max_rel": 0.0,
+    "nan_on_device": false,
+    "inf_on_device": false
+  }
+}

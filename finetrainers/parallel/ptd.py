@@ -78,7 +78,9 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
             )
 
         torch.distributed.init_process_group(backend=self._backend, timeout=datetime.timedelta(seconds=self._timeout))
-        _device_module.set_device(self.local_rank)
+        if hasattr(_device_module, "set_device"):
+            # torch.mps does not implement set_device; single-device backends have nothing to select anyway
+            _device_module.set_device(self.local_rank)
 
         logger.info(
             f"Initialized parallel state with:\n"
