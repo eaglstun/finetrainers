@@ -79,15 +79,20 @@ class AccelerateParallelBackend(BaseParallelBackend):
             dataloader_config = DataLoaderConfiguration(
                 split_batches=False, dispatch_batches=False, use_stateful_dataloader=True
             )
-            init_process_group_kwargs = InitProcessGroupKwargs(
-                backend=self._backend, timeout=datetime.timedelta(seconds=self._timeout)
-            )
+            # Only request a process group when running under a distributed launcher (accelerate launch/torchrun).
+            # With a plain `python train.py` there are no launcher env vars, so passing an explicit backend would
+            # make Accelerate assume a distributed run and crash on the uninitialized process group.
+            kwargs_handlers = []
+            if os.environ.get("LOCAL_RANK") is not None:
+                kwargs_handlers.append(
+                    InitProcessGroupKwargs(backend=self._backend, timeout=datetime.timedelta(seconds=self._timeout))
+                )
             self._accelerator = Accelerator(
                 project_config=project_config,
                 dataloader_config=dataloader_config,
                 gradient_accumulation_steps=gradient_accumulation_steps,
                 log_with=None,
-                kwargs_handlers=[init_process_group_kwargs],
+                kwargs_handlers=kwargs_handlers,
             )
             if torch.backends.mps.is_available():
                 self._accelerator.native_amp = False
@@ -288,7 +293,9 @@ class AccelerateCheckpointer(BaseCheckpointer):
             torch.save(self.states, os.path.join(output_dir, "states.pt"))
 
         def load_model_hook(models, input_dir) -> None:
-            self.states = torch.load(os.path.join(input_dir, "states.pt"))
+            # states.pt is written by save_model_hook above and contains non-tensor state (e.g. TrainState),
+            # which the torch>=2.6 weights_only=True default refuses to unpickle
+            self.states = torch.load(os.path.join(input_dir, "states.pt"), weights_only=False)
 
         self.accelerator.register_save_state_pre_hook(save_model_hook)
         self.accelerator.register_load_state_pre_hook(load_model_hook)

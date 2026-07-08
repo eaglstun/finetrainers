@@ -24,15 +24,19 @@ def get_memory_statistics(precision: int = 3) -> Dict[str, Any]:
 
     elif torch.backends.mps.is_available():
         memory_allocated = torch.mps.current_allocated_memory()
+        memory_reserved = torch.mps.driver_allocated_memory()
 
     else:
         logger.warning("No CUDA, MPS, or ROCm device found. Memory statistics are not available.")
 
+    def _to_gb(x):
+        return round(bytes_to_gigabytes(x), ndigits=precision) if x is not None else None
+
     return {
-        "memory_allocated": round(bytes_to_gigabytes(memory_allocated), ndigits=precision),
-        "memory_reserved": round(bytes_to_gigabytes(memory_reserved), ndigits=precision),
-        "max_memory_allocated": round(bytes_to_gigabytes(max_memory_allocated), ndigits=precision),
-        "max_memory_reserved": round(bytes_to_gigabytes(max_memory_reserved), ndigits=precision),
+        "memory_allocated": _to_gb(memory_allocated),
+        "memory_reserved": _to_gb(memory_reserved),
+        "max_memory_allocated": _to_gb(max_memory_allocated),
+        "max_memory_reserved": _to_gb(max_memory_reserved),
     }
 
 
@@ -46,8 +50,17 @@ def free_memory() -> None:
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
+    elif torch.backends.mps.is_available():
+        gc.collect()
+        torch.mps.empty_cache()
 
     # TODO(aryan): handle non-cuda devices
+
+
+def reset_peak_memory_stats(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+    # torch.mps has no reset_peak_memory_stats; peak tracking is CUDA-only for now
 
 
 def make_contiguous(x: Union[torch.Tensor, Dict[str, torch.Tensor]]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:

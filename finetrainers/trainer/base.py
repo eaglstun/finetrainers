@@ -7,7 +7,7 @@ import torch
 import torch.backends
 from diffusers.hooks import HookRegistry, ModelHook
 
-from finetrainers import logging, parallel, patches
+from finetrainers import logging, parallel, patches, utils
 from finetrainers.args import BaseArgsType
 from finetrainers.logging import get_logger
 from finetrainers.models.attention_dispatch import AttentionProvider, _AttentionProviderRegistry
@@ -90,7 +90,16 @@ class Trainer:
             registry.remove_hook(_LATEST_ACTIVE_MODULE_HOOK)
 
     def _init_distributed(self) -> None:
-        world_size = int(os.environ.get("WORLD_SIZE", torch.cuda.device_count()))
+        device_type, _ = utils.get_device_info()
+        default_world_size = torch.cuda.device_count() if device_type == "cuda" else 1
+        world_size = int(os.environ.get("WORLD_SIZE", default_world_size))
+
+        if device_type == "mps" and os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK") != "1":
+            logger.warning(
+                "Training on MPS without PYTORCH_ENABLE_MPS_FALLBACK=1. Operators not yet implemented for MPS "
+                "will raise an error instead of falling back to CPU. Set the environment variable before launch "
+                "if you hit a NotImplementedError."
+            )
 
         # TODO(aryan): handle other backends
         backend_cls: parallel.ParallelBackendType = parallel.get_parallel_backend_cls(self.args.parallel_backend)
@@ -101,7 +110,7 @@ class Trainer:
             dp_shards=self.args.dp_shards,
             cp_degree=self.args.cp_degree,
             tp_degree=self.args.tp_degree,
-            backend="nccl",
+            backend=_default_comm_backend(device_type),
             timeout=self.args.init_timeout,
             logging_dir=self.args.logging_dir,
             output_dir=self.args.output_dir,
@@ -143,6 +152,10 @@ class LatestActiveModuleHook(ModelHook):
     def pre_forward(self, module, *args, **kwargs):
         self.callback(module)
         return args, kwargs
+
+
+def _default_comm_backend(device_type: str) -> str:
+    return "nccl" if device_type == "cuda" else "gloo"
 
 
 def _parse_attention_providers(attn_providers: List[str] = None) -> List[Tuple[str, AttentionProvider]]:

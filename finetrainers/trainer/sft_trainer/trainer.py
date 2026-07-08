@@ -488,7 +488,8 @@ class SFTTrainer(Trainer):
             grad_norm = utils.torch._clip_grad_norm_while_handling_failing_dtensor_cases(
                 [p for m in model_parts for p in m.parameters()],
                 self.args.max_grad_norm,
-                foreach=True,
+                # The foreach API is unavailable on MPS; None falls back to the slow implementation there
+                foreach=True if parallel_backend.device.type == "cuda" else None,
                 pp_mesh=parallel_backend.get_mesh()["pp"] if parallel_backend.pipeline_parallel_enabled else None,
             )
 
@@ -689,7 +690,7 @@ class SFTTrainer(Trainer):
         module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "image_encoder", "image_processor", "vae"]
         if self.args.enable_precomputation:
             self._delete_components(module_names)
-        torch.cuda.reset_peak_memory_stats(parallel_backend.device)
+        utils.reset_peak_memory_stats(parallel_backend.device)
 
         # Gather artifacts from all processes. We also need to flatten them since each process returns a list of artifacts.
         all_artifacts = [None] * dp_world_size
@@ -867,7 +868,7 @@ class SFTTrainer(Trainer):
                 self._move_components_to_device([self.transformer], "cpu")
                 utils.free_memory()
                 utils.synchronize_device()
-                torch.cuda.reset_peak_memory_stats(parallel_backend.device)
+                utils.reset_peak_memory_stats(parallel_backend.device)
 
             consume_fn = preprocessor.consume_once if self.args.precomputation_once else preprocessor.consume
 
