@@ -63,7 +63,7 @@ Key seams (grep before editing — line numbers drift):
 Tests (plain pytest, skip without MPS): `tests/mps/test_cpu_mps_parity.py` (CPU-as-oracle forward
 parity, per-model mixin) plus the dp_degree_1 Accelerate trainer tests. Set
 `PYTORCH_ENABLE_MPS_FALLBACK=1` for training runs. Benchmarks: the `benchmark` skill
-(`.claude/skills/benchmark/`), baselines in `.claude/skills/benchmark/baselines/`.
+(`.agents/skills/benchmark/`), baselines in `.agents/skills/benchmark/baselines/`.
 
 Known limits: gradient checkpointing is mandatory at LTX 512×768×49 (backward graph > 64 GB
 without it); Wan trains at 320×512×49 but segfaults at 480×832×49 (upstream torch MPS tiled-bmm

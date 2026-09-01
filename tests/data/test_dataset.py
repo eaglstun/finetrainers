@@ -15,6 +15,7 @@ from finetrainers.data import (
     VideoFolderDataset,
     VideoWebDataset,
     initialize_dataset,
+    wrap_iterable_dataset_for_preprocessing,
 )
 from finetrainers.utils import find_files
 
@@ -45,9 +46,17 @@ class DatasetTesterMixin:
 class ImageDatasetTesterMixin(DatasetTesterMixin):
     metadata_extension = "jpg"
 
+    def iter_preprocessed_dataset(self):
+        dataset = wrap_iterable_dataset_for_preprocessing(self.dataset, "image", {})
+        return iter(dataset)
+
 
 class VideoDatasetTesterMixin(DatasetTesterMixin):
     metadata_extension = "mp4"
+
+    def iter_preprocessed_dataset(self):
+        dataset = wrap_iterable_dataset_for_preprocessing(self.dataset, "video", {})
+        return iter(dataset)
 
 
 class ImageCaptionFilePairDatasetFastTests(ImageDatasetTesterMixin, unittest.TestCase):
@@ -66,11 +75,12 @@ class ImageCaptionFilePairDatasetFastTests(ImageDatasetTesterMixin, unittest.Tes
         self.dataset = ImageCaptionFilePairDataset(self.tmpdir.name, infinite=False)
 
     def test_getitem(self):
-        iterator = iter(self.dataset)
+        iterator = self.iter_preprocessed_dataset()
         for _ in range(self.num_data_files):
             item = next(iterator)
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["image"]))
+            self.assertEqual(item["image"].dtype, torch.float32)
             self.assertEqual(item["image"].shape, (3, 64, 64))
 
     def test_initialize_dataset(self):
@@ -94,11 +104,12 @@ class ImageFileCaptionFileListDatasetFastTests(ImageDatasetTesterMixin, unittest
         self.dataset = ImageFileCaptionFileListDataset(self.tmpdir.name, infinite=False)
 
     def test_getitem(self):
-        iterator = iter(self.dataset)
+        iterator = self.iter_preprocessed_dataset()
         for i in range(3):
             item = next(iterator)
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["image"]))
+            self.assertEqual(item["image"].dtype, torch.float32)
             self.assertEqual(item["image"].shape, (3, 64, 64))
 
     def test_initialize_dataset(self):
@@ -120,12 +131,13 @@ class ImageFolderDatasetFastTests___CSV(ImageDatasetTesterMixin, unittest.TestCa
         self.dataset = ImageFolderDataset(self.tmpdir.name, infinite=False)
 
     def test_getitem(self):
-        iterator = iter(self.dataset)
+        iterator = self.iter_preprocessed_dataset()
         for _ in range(3):
             item = next(iterator)
             self.assertIn("caption", item)
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["image"]))
+            self.assertEqual(item["image"].dtype, torch.float32)
 
     def test_initialize_dataset(self):
         dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
@@ -146,12 +158,13 @@ class ImageFolderDatasetFastTests___JSONL(ImageDatasetTesterMixin, unittest.Test
         self.dataset = ImageFolderDataset(self.tmpdir.name, infinite=False)
 
     def test_getitem(self):
-        iterator = iter(self.dataset)
+        iterator = self.iter_preprocessed_dataset()
         for _ in range(3):
             item = next(iterator)
             self.assertIn("caption", item)
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["image"]))
+            self.assertEqual(item["image"].dtype, torch.float32)
 
     def test_initialize_dataset(self):
         dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
@@ -174,11 +187,12 @@ class VideoCaptionFilePairDatasetFastTests(VideoDatasetTesterMixin, unittest.Tes
         self.dataset = VideoCaptionFilePairDataset(self.tmpdir.name, infinite=False)
 
     def test_getitem(self):
-        iterator = iter(self.dataset)
+        iterator = self.iter_preprocessed_dataset()
         for _ in range(self.num_data_files):
             item = next(iterator)
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["video"]))
+            self.assertEqual(item["video"].dtype, torch.float32)
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
@@ -203,11 +217,12 @@ class VideoFileCaptionFileListDatasetFastTests(VideoDatasetTesterMixin, unittest
         self.dataset = VideoFileCaptionFileListDataset(self.tmpdir.name, infinite=False)
 
     def test_getitem(self):
-        iterator = iter(self.dataset)
+        iterator = self.iter_preprocessed_dataset()
         for _ in range(3):
             item = next(iterator)
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["video"]))
+            self.assertEqual(item["video"].dtype, torch.float32)
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
@@ -230,12 +245,13 @@ class VideoFolderDatasetFastTests___CSV(VideoDatasetTesterMixin, unittest.TestCa
         self.dataset = VideoFolderDataset(self.tmpdir.name, infinite=False)
 
     def test_getitem(self):
-        iterator = iter(self.dataset)
+        iterator = self.iter_preprocessed_dataset()
         for _ in range(3):
             item = next(iterator)
             self.assertIn("caption", item)
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["video"]))
+            self.assertEqual(item["video"].dtype, torch.float32)
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
@@ -258,12 +274,13 @@ class VideoFolderDatasetFastTests___JSONL(VideoDatasetTesterMixin, unittest.Test
         self.dataset = VideoFolderDataset(self.tmpdir.name, infinite=False)
 
     def test_getitem(self):
-        iterator = iter(self.dataset)
+        iterator = self.iter_preprocessed_dataset()
         for _ in range(3):
             item = next(iterator)
             self.assertIn("caption", item)
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["video"]))
+            self.assertEqual(item["video"].dtype, torch.float32)
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
@@ -283,12 +300,14 @@ class VideoWebDatasetFastTests(unittest.TestCase):
         self.dataset = VideoWebDataset("finetrainers/dummy-squish-wds", infinite=False)
 
     def test_getitem(self):
-        for index, item in enumerate(self.dataset):
+        dataset = wrap_iterable_dataset_for_preprocessing(self.dataset, "video", {})
+        for index, item in enumerate(dataset):
             if index > 2:
                 break
             self.assertIn("caption", item)
             self.assertIn("video", item)
             self.assertTrue(torch.is_tensor(item["video"]))
+            self.assertEqual(item["video"].dtype, torch.float32)
             self.assertEqual(len(item["video"]), 121)
             self.assertEqual(item["video"][0].shape, (3, 720, 1280))
 

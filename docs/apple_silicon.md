@@ -13,18 +13,19 @@ Speed and memory optimizations are explicitly out of scope for now.
   unified memory, but LoRA is the validated path.
 - **Native attention** (`--attn_provider_* transformer:native`, PyTorch SDPA) — this is also the
   default when no provider is specified.
+- **bitsandbytes optimizers**, including 8-bit Adam and AdamW (`--optimizer adam-bnb-8bit` or
+  `adamw-bnb-8bit`), when the Apple Silicon fork is installed as described below.
 - **bf16 / fp16 / fp32** dtypes (`--transformer_dtype bf16` etc.). bf16 is the recommended
   low-precision dtype.
 - **Precomputation** (`--enable_precomputation`), gradient checkpointing, checkpoint save/load.
 
 ## Unsupported (fails loudly at argument parsing)
 
-| Feature                                                                                         | Why                                                                      | Use instead      |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------- |
-| Multi-GPU / FSDP / HSDP / CP / TP / PP (`--*_degree > 1`)                                       | NCCL and DTensor/FSDP2 are CUDA-only; a Mac is one unified-memory device | All degrees `1`  |
-| `flash`, `flash_varlen`, `flex`, `sage*`, `xformers`, `_native_cudnn/efficient/flash` attention | CUDA-only kernels                                                        | `native`         |
-| fp8 layerwise upcasting (`--layerwise_upcasting_modules`)                                       | float8 dtypes have no MPS support                                        | bf16             |
-| bitsandbytes optimizers (`--optimizer *-bnb*`)                                                  | bitsandbytes is CUDA-only                                                | `adamw` / `adam` |
+| Feature                                                                                         | Why                                                                      | Use instead     |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | --------------- |
+| Multi-GPU / FSDP / HSDP / CP / TP / PP (`--*_degree > 1`)                                       | NCCL and DTensor/FSDP2 are CUDA-only; a Mac is one unified-memory device | All degrees `1` |
+| `flash`, `flash_varlen`, `flex`, `sage*`, `xformers`, `_native_cudnn/efficient/flash` attention | CUDA-only kernels                                                        | `native`        |
+| fp8 layerwise upcasting (`--layerwise_upcasting_modules`)                                       | float8 dtypes have no MPS support                                        | bf16            |
 
 ## Environment variables
 
@@ -37,6 +38,22 @@ Speed and memory optimizations are explicitly out of scope for now.
   device is auto-detected (MPS on Apple Silicon).
 
 ## Quickstart
+
+The MPS recipes use 8-bit AdamW. Install the Apple optimizer branch into this repo's virtualenv
+first (the branch has to be built in-source so its Metal shader archive lands beside the dylib):
+
+```bash
+git clone https://github.com/eaglstun/bitsandbytes.git
+cd bitsandbytes
+git switch feature/mps-8bit-optim
+cmake -DCOMPUTE_BACKEND=mps -S . -B .
+cmake --build . --config Release
+BNB_SKIP_CMAKE=1 uv pip install --python /path/to/finetrainers/.venv/bin/python -e .
+```
+
+`BNB_SKIP_CMAKE=1` is intentional: the preceding in-source build creates the native artifacts;
+letting the editable installer invoke CMake again currently uses an out-of-tree build directory
+and cannot locate `csrc/mps_kernels.metal`.
 
 ```bash
 # LTX-Video LoRA (2B) — the reference recipe
@@ -92,9 +109,9 @@ step is ~5.5–7 s at this shape.
 LoRA training step is **~7–9 s** (e2e baseline steady-state 7.8 s/step; ~6–7 s observed on a fully
 idle machine). The raw transformer forward+backward is ~5.2 s of that (micro benchmark median
 5162 ms, cv 3.9%); the remainder is LoRA adapter compute, batch preparation, and per-step
-`.item()` syncs. The optimizer step is ~0.02 s. Speedups must come from the transformer compute
-itself (attention kernel path, checkpointing granularity), not the data/optimizer path. Step 1
-is minutes-long (precomputation + MPS shader compilation) — always exclude it from timing.
+`.item()` syncs. The measured torch AdamW optimizer step is ~0.02 s. Step 1 is minutes-long
+(precomputation + MPS shader compilation) — always exclude it from timing. Re-run the benchmark
+when comparing torch AdamW with the bitsandbytes 8-bit path.
 
 Benchmark baselines live in `.claude/skills/benchmark/baselines/` (micro:
 `ltx_transformer_fwd_bwd`, end-to-end: the `train_mps.sh` config); see the `benchmark` skill for
@@ -102,27 +119,74 @@ running them against changes.
 
 ## Dependency notes for macOS
 
-- **decord** has no macOS arm64 wheels. It is now an optional import: with `datasets >= 4.0.0`
-  video decoding goes through **torchcodec** instead (`pip install torchcodec av`), which does ship
-  arm64 wheels. Nothing to configure — the dataset code picks the right decoder for your installed
-  `datasets` version.
-- **bitsandbytes** is not installable/usable on macOS; don't include it, the default `adamw`
-  optimizer path never touches it.
+- **decord** has no macOS arm64 wheels and is excluded there by the requirements marker. With
+  `datasets >= 4.0.0`, video decoding goes through **TorchCodec 0.15** instead.
+- Released TorchCodec 0.15 macOS wheels currently contain FFmpeg 4–8 loaders, while current
+  Homebrew `ffmpeg` is 9. Install `brew install ffmpeg@7`; it is keg-only and can coexist with
+  FFmpeg 9. The MPS recipes automatically add `/opt/homebrew/opt/ffmpeg@7/{bin,lib}` to `PATH` and
+  `DYLD_FALLBACK_LIBRARY_PATH`. For parity tests, set those variables explicitly:
+
+  ```bash
+  DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/opt/ffmpeg@7/lib \
+  PATH=/opt/homebrew/opt/ffmpeg@7/bin:$PATH \
+    .venv/bin/python -m pytest -q tests/mps/test_cpu_mps_parity.py
+  ```
+
+- **bitsandbytes** must come from the Apple Silicon fork's `feature/mps-8bit-optim` branch for the
+  MPS recipes. Its Adam/AdamW 8-bit update has a native Metal path and a pure-PyTorch MPS fallback.
+  The plain `bitsandbytes` entry in `requirements.txt` remains portable for CUDA and other hosts;
+  on Apple Silicon, replace it with the in-source fork install shown in Quickstart.
 - Use Python 3.12 or earlier — several ML packages don't publish wheels for newer Pythons yet.
 
-## Tested configuration (2026-07)
+## Last validated configuration (2026-07)
 
-| Component   | Version                            |
-| ----------- | ---------------------------------- |
-| macOS       | Darwin 25.4 (Apple Silicon, 64 GB) |
-| Python      | 3.12                               |
-| torch       | 2.12.1 (MPS)                       |
-| torchvision | 0.27.1                             |
-| datasets    | 5.0.0                              |
-| torchcodec  | 0.14.0                             |
-| diffusers   | 0.39.0                             |
-| accelerate  | 1.13.0                             |
-| peft        | 0.19.1                             |
+This is the last stack that passed the finetrainers MPS parity and end-to-end training gates. Keep
+it separate from the current environment audit below: an installed version is not considered
+validated until those gates run successfully.
+
+| Component   | Version                                    |
+| ----------- | ------------------------------------------ |
+| Hardware    | MacBook Pro, Apple M4 Max (16-core), 64 GB |
+| macOS       | 26.4.1 (Darwin 25.4)                       |
+| Python      | 3.12                                       |
+| torch       | 2.12.1 (MPS)                               |
+| torchvision | 0.27.1                                     |
+| datasets    | 5.0.0                                      |
+| torchcodec  | 0.14.0                                     |
+| diffusers   | 0.39.0                                     |
+| accelerate  | 1.13.0                                     |
+| peft        | 0.19.1                                     |
+
+### Current local environment audit (2026-08-31)
+
+The current virtualenv has passed the focused CPU↔MPS parity, dataset decoding, bitsandbytes
+native-kernel, and 10-step LTX trainer integration gates with TorchCodec using keg-only FFmpeg 7.
+It has not replaced the July validated matrix because the full-size LTX and Wan reference recipes
+have not been rerun on this stack.
+
+| Component    | Installed version / status                             |
+| ------------ | ------------------------------------------------------ |
+| Hardware     | MacBook Pro, Apple M4 Max (16-core), 64 GB             |
+| macOS        | 26.5.2 (build 25F84)                                   |
+| Python       | 3.12.13                                                |
+| torch        | 2.12.1; MPS built and available                        |
+| torchvision  | 0.27.1                                                 |
+| datasets     | 5.0.0                                                  |
+| torchcodec   | 0.15.0; imports with keg-only FFmpeg 7                 |
+| FFmpeg       | 9.0.1 system default; 7.1.5 keg-only for TorchCodec    |
+| diffusers    | 0.39.0                                                 |
+| accelerate   | 1.14.0                                                 |
+| peft         | 0.19.1                                                 |
+| bitsandbytes | 0.50.0.dev0; `feature/mps-8bit-optim` commit `212c745` |
+
+The focused MPS suite passed **8 tests**, and the non-network dataset suite passed **19 tests**, on
+2026-08-31. The latter covers lazy image/video decoding through the production preprocessing
+wrapper. The bitsandbytes native optimizer suite passed **8 tests** with
+`BNB_MPS_REQUIRE_NATIVE=1`, covering fused Adam/Lion updates for fp32, fp16, and bf16 plus 8-bit
+optimizer end-to-end cases. With the fork installed in `.venv`, the LTX dummy-model trainer passed
+**two 10-step runs** using `adamw-bnb-8bit` (precomputation off and on), including checkpoint saves
+at steps 6 and 10. The small trainer model uses 32-bit optimizer state below bitsandbytes' minimum
+8-bit tensor size, so the separate native suite is the proof that the fused Metal 8-bit path runs.
 
 ## Memory reality on 64 GB
 

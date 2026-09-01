@@ -1016,11 +1016,6 @@ def _validate_device_args(args: BaseArgs):
             "Layerwise upcasting stores weights in float8, which is not supported on MPS. Remove "
             "`--layerwise_upcasting_modules`; bf16 is the supported low-precision dtype on Apple Silicon."
         )
-    if "bnb" in args.optimizer:
-        raise ValueError(
-            f"Optimizer '{args.optimizer}' requires bitsandbytes, which is CUDA-only. Use `--optimizer adamw` "
-            "(or `adam`) on Apple Silicon."
-        )
     for provider_str in [*(args.attn_provider_training or []), *(args.attn_provider_inference or [])]:
         provider = provider_str.split(":")[-1]
         if provider not in _MPS_SUPPORTED_ATTENTION_PROVIDERS:

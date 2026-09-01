@@ -17,6 +17,14 @@ export PYTORCH_ENABLE_MPS_FALLBACK=1
 export WANDB_MODE="offline"
 export FINETRAINERS_LOG_LEVEL="INFO"
 
+# Released TorchCodec macOS wheels currently support FFmpeg 4-8. Keep Homebrew's
+# keg-only ffmpeg@7 beside the system FFmpeg and expose its dylibs to TorchCodec.
+FFMPEG7_PREFIX="${FFMPEG7_PREFIX:-/opt/homebrew/opt/ffmpeg@7}"
+if [[ -d "$FFMPEG7_PREFIX/lib" ]]; then
+  export PATH="$FFMPEG7_PREFIX/bin:$PATH"
+  export DYLD_FALLBACK_LIBRARY_PATH="$FFMPEG7_PREFIX/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
+fi
+
 # Check the JSON files for the expected JSON format.
 # training_mps.json uses a 49x320x512 bucket instead of the CUDA recipe's 49x480x832:
 # at 480x832 the ~20k-token attention matmul hits PyTorch's tiled bmm path on MPS,
@@ -82,9 +90,9 @@ training_cmd=(
   --enable_tiling
 )
 
-# Optimizer arguments (bitsandbytes optimizers are CUDA-only; stick to adamw)
+# Optimizer arguments (Apple Silicon bitsandbytes fork; 8-bit states reduce unified-memory use)
 optimizer_cmd=(
-  --optimizer "adamw"
+  --optimizer "adamw-bnb-8bit"
   --lr 5e-5
   --lr_scheduler "constant_with_warmup"
   --lr_warmup_steps 20

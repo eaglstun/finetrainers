@@ -1,12 +1,13 @@
 accelerate
 bitsandbytes
 datasets>=3.3.2
+torchcodec>=0.15,<0.16
 diffusers>=0.32.1
 transformers>=4.45.2
 huggingface_hub
 hf_transfer>=0.1.8
 peft>=0.13.0
-decord>=0.6.0
+decord>=0.6.0 ; sys_platform != "darwin" or platform_machine != "arm64"
 wandb
 pandas
 torch>=2.5.1

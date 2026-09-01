@@ -3,7 +3,7 @@
 Finetrainers is a work-in-progress library to support (accessible) training of diffusion models and various commonly used training algorithms.
 
 > [!TIP]
-> **This fork adds Apple Silicon (MPS) support** — single-device LoRA training on M-series Macs, no CUDA required. Validated models: LTX-Video 2B and Wan2.1 T2V 1.3B, with CPU↔MPS parity tests and saved performance baselines. See [docs/apple_silicon.md](./docs/apple_silicon.md) for the supported/unsupported matrix and quickstart:
+> **This fork adds Apple Silicon (MPS) support** — single-device LoRA training on M-series Macs, no CUDA required. Validated models: LTX-Video 2B and Wan2.1 T2V 1.3B, with CPU↔MPS parity tests and saved performance baselines. Before running either recipe, follow the [Apple Silicon quickstart](./docs/apple_silicon.md#quickstart), including the required bitsandbytes MPS-fork build:
 >
 > ```bash
 > bash examples/training/sft/ltx_video/crush_smol_lora/train_mps.sh   # LTX-Video 2B
@@ -32,7 +32,7 @@ Finetrainers is a work-in-progress library to support (accessible) training of d
 
 ## Quickstart
 
-Clone the repository and make sure the requirements are installed: `pip install -r requirements.txt` and install `diffusers` from source by `pip install git+https://github.com/huggingface/diffusers`. The requirements specify `diffusers>=0.32.1`, but it is always recommended to use the `main` branch of Diffusers for the latest features and bugfixes. Note that the `main` branch for `finetrainers` is also the development branch, and stable support should be expected from the release tags.
+Clone the repository, install the requirements with `pip install -r requirements.txt`, and install Diffusers from source with `pip install git+https://github.com/huggingface/diffusers`. The requirements specify `diffusers>=0.32.1`, but the Diffusers `main` branch is recommended for the latest features and bug fixes. The `finetrainers` `main` branch is also a development branch; use a release tag when you need stable behavior. Apple Silicon users must additionally install the bitsandbytes MPS fork as described in the [Apple Silicon quickstart](./docs/apple_silicon.md#quickstart).
 
 Checkout to the latest stable release tag:
 
@@ -41,7 +41,7 @@ git fetch --all --tags
 git checkout tags/v0.2.0
 ```
 
-Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.2.0-release) for the latest stable release.
+Follow the instructions in the [v0.2.0 release README](https://github.com/huggingface/finetrainers/tree/v0.2.0-release) for the latest stable release.
 
 #### Using the main branch
 
@@ -51,16 +51,17 @@ To get started quickly with example training scripts on the main development bra
 - [CogVideoX Pika Effects Crush](./examples/training/sft/cogvideox/crush_smol_lora/)
 - [Wan T2V Pika Effects Crush](./examples/training/sft/wan/crush_smol_lora/)
 
-The following are some simple datasets/HF orgs with good datasets to test training with quickly:
+The following maintained datasets are useful for testing training quickly:
 
-- [Disney Video Generation Dataset](https://huggingface.co/datasets/Wild-Heart/Disney-VideoGeneration-Dataset)
-- [bigdatapw Video Dataset Collection](https://huggingface.co/bigdata-pw)
-- [Finetrainers HF Dataset Collection](https://huggingface.co/finetrainers)
+- [crush-smol](https://huggingface.co/datasets/finetrainers/crush-smol) — the small dataset used by the example recipes above
+- [Finetrainers video-effects datasets](https://huggingface.co/collections/finetrainers/video-effects-datasets) — other small, captioned video datasets
+- [OpenVid-1k split](https://huggingface.co/datasets/finetrainers/OpenVid-1k-split) — a larger WebDataset example
+- [All Finetrainers datasets](https://huggingface.co/finetrainers/datasets)
 
-Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./examples/training/) to learn more about supported models for training & example reproducible training launch scripts. For a full list of arguments that can be set for training, refer to [`docs/args`](./docs/args.md).
+Please check out [`docs/models`](./docs/models/) and [`examples/training`](./examples/training/) to learn more about supported models and reproducible training launch scripts. For a full list of training arguments, refer to [`docs/args`](./docs/args.md).
 
 > [!IMPORTANT]
-> It is recommended to use Pytorch 2.5.1 or above for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested. For fully reproducible training, please use the same environment as mentioned in [environment.md](./docs/environment.md).
+> PyTorch 2.5.1 or newer is recommended for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested. For fully reproducible training, use the environment documented in [environment.md](./docs/environment.md).
 
 ## Features
 
@@ -79,7 +80,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 - 🔥 **2026-07-08**: Apple Silicon (MPS) support added in this fork — LTX-Video and Wan T2V LoRA train on M-series Macs, with CPU↔MPS parity tests and benchmark baselines!
 - 🔥 **2025-04-25**: Support for different attention providers added!
-- 🔥 **2025-04-21**: Wan I2V supported added!
+- 🔥 **2025-04-21**: Wan I2V support added!
 - 🔥 **2025-04-12**: Channel-concatenated control conditioning support added for CogView4 and Wan!
 - 🔥 **2025-04-08**: `torch.compile` support added!
 - 🔥 **2025-04-06**: Flux support added!
@@ -102,7 +103,7 @@ The following trainers are currently supported:
 - [Control Trainer](./docs/trainer/control_trainer.md)
 
 > [!NOTE]
-> The following numbers were obtained from the [release branch](https://github.com/a-r-r-o-w/finetrainers/tree/v0.0.1). The `main` branch is unstable at the moment and may use higher memory.
+> The following numbers were obtained from the [v0.0.1 release](https://github.com/huggingface/finetrainers/tree/v0.0.1). The `main` branch is unstable at the moment and may use higher memory.
 
 <div align="center">
 
@@ -128,10 +129,10 @@ Checkout some amazing projects citing `finetrainers`:
 
 - [Diffusion as Shader](https://github.com/IGL-HKUST/DiffusionAsShader)
 - [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1) & [SkyReels-A2](https://github.com/SkyworkAI/SkyReels-A2)
-- [Aether](https://github.com/OpenRobotLab/Aether)
+- [Aether](https://github.com/InternRobotics/Aether)
 - [MagicMotion](https://github.com/quanhaol/MagicMotion)
 - [eisneim's LTX Image-to-Video](https://github.com/eisneim/ltx_lora_training_i2v_t2v/)
-- [wileewang's TransPixar](https://github.com/wileewang/TransPixar)
+- [wileewang's TransPixeler](https://github.com/wileewang/TransPixeler)
 - [Feizc's Video-In-Context](https://github.com/feizc/Video-In-Context)
 
 Checkout the following UIs built for `finetrainers`:
@@ -143,4 +144,3 @@ Checkout the following UIs built for `finetrainers`:
 
 - `finetrainers` builds on top of & takes inspiration from great open-source libraries - `transformers`, `accelerate`, `torchtune`, `torchtitan`, `peft`, `diffusers`, `bitsandbytes`, `torchao` and `deepspeed` - to name a few.
 - Some of the design choices of `finetrainers` were inspired by [`SimpleTuner`](https://github.com/bghira/SimpleTuner).
-  `

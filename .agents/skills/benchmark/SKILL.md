@@ -35,7 +35,7 @@ def parity_output(device):     # optional: return a tensor computed ON `device`;
 Run it:
 
 ```bash
-cd .claude/skills/benchmark/scripts
+cd .agents/skills/benchmark/scripts
 python finetrainers_bench.py run specs/example_forward.py --device auto --iters 50 \
     --out ../baselines/example.mps.json --label "example fwd, mps"
 
@@ -73,4 +73,4 @@ See `reference/authoring.md` for writing real-model specs, memory caveats (MPS h
 
 ## The agent
 
-`benchmark-runner` (`.claude/agents/`) does this end-to-end autonomously: picks the tier, writes the spec if one doesn't exist, runs on the right device with the right launcher, compares to baseline, and reports a verdict with regression/parity flags. Delegate to it for "benchmark X" / "did my change regress Y" / "check MPS parity for Z".
+`benchmark-runner` (`.agents/agents/`) does this end-to-end autonomously: picks the tier, writes the spec if one doesn't exist, runs on the right device with the right launcher, compares to baseline, and reports a verdict with regression/parity flags. Delegate to it for "benchmark X" / "did my change regress Y" / "check MPS parity for Z".
