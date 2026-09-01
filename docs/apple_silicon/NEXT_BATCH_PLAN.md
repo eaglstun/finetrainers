@@ -1,6 +1,6 @@
 # finetrainers MPS — Batch 2: Measure, Speed Up, Generalize
 
-**Status:** 5A ✅ + 5C ✅ + 5D docs ✅ · 5B in progress (paired optimizer trial ✅ 2026-08-31) · upstream PRs (5D.13) awaiting Eric's call · **Branch:** `apple-silicon-mps-phase-5b` · **Executor:** Codex
+**Status:** 5A ✅ + 5C ✅ + 5D docs ✅ · 5B in progress (paired optimizer trial ✅ 2026-08-31; batch-size sweep ✅ 2026-09-01) · upstream PRs (5D.13) awaiting Eric's call · **Branch:** `apple-silicon-mps-phase-5b` · **Executor:** Codex
 **Author:** Claude (Fable 5) · **Date:** 2026-07-08 · **Predecessor:** `PORT_PLAN.md` (phases 1–4, ✅ complete)
 
 Batch 1 delivered _correctness_: LTX-Video LoRA trains on MPS (plain `python train.py`,
@@ -47,8 +47,8 @@ LTX-Video LoRA, 512×768×49, bf16, rank 32, gradient checkpointing ON, batch 1,
 4. ✅ **Gradient checkpointing OFF trial.** It trades compute for memory; at the reference
    shape the backward graph allocates ~66 GB, swaps, and slows to ~80 s/iteration. Keep
    checkpointing enabled at 512×768×49; this is a capacity requirement, not a speed knob.
-5. **Batch size sweep** (1→2→4) at fixed resolution — unified memory may allow real
-   throughput gains before pressure.
+5. ✅ **Batch size sweep** (1→2→4) at fixed resolution — no throughput gain. Keep batch
+   size 1 at 512×768×49; larger batches fit but scale slightly worse than linearly.
 6. **`torch.set_float32_matmul_precision` / SDPA path check** — confirm bf16 SDPA hits
    the fast MPS kernel (not math fallback); confirm no fp32 upcasts sneak into the LoRA
    matmuls.
@@ -59,6 +59,16 @@ LTX-Video LoRA, 512×768×49, bf16, rank 32, gradient checkpointing ON, batch 1,
 
 ### Phase 5B experiment log
 
+- **Batch size 1→2→4 sweep (2026-09-01): batch 1 wins.** Same-session 30-step LTX 2B
+  torch AdamW runs at 512×768×49, excluding two warmup steps, measured 14.066, 29.859,
+  and 60.407 s/step respectively. Useful throughput was 0.0711, 0.0670, and 0.0662
+  samples/s, so batch 2 was **-5.8%** and batch 4 **-6.9%** versus batch 1. All runs
+  completed with finite loss and saved step-30 checkpoints; unified memory had capacity,
+  but MPS compute did not scale into a throughput win. The first batch>1 run exposed an
+  LTX latent-statistics broadcasting bug (`[C]` was reshaped using batch size); the fixed
+  `[1,C,1,1,1]` broadcast is covered by a regression test.
+- Results: `ltx_lora_batch_sweep_bs{1,2,4}.mps.e2e.json` under the benchmark skill's
+  `baselines/` directory.
 - **torch AdamW vs native bitsandbytes AdamW8bit (2026-08-31): no speed win.** Paired
   30-step LTX 2B runs at the reference shape, on the same machine and stack, measured
   14.381 s/step for torch AdamW and 14.252 s/step for AdamW8bit. The bnb result is

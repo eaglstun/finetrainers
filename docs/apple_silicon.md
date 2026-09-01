@@ -116,7 +116,16 @@ the 10% end-to-end noise threshold). The 8-bit optimizer is therefore not a demo
 use it for its reduced-state representation. These current-stack runs were slower overall than the
 July baseline, so only the paired optimizer delta is meaningful.
 
-Benchmark baselines live in `.claude/skills/benchmark/baselines/` (micro:
+**Batch size 1 is fastest at the reference shape.** A same-session 30-step sweep at
+512×768×49 with torch AdamW measured 14.066, 29.859, and 60.407 s/step for batch sizes 1, 2,
+and 4. After multiplying by batch size, useful throughput was 0.0711, 0.0670, and 0.0662
+samples/s: batch 2 was **5.8% slower** and batch 4 **6.9% slower** than batch 1. Both larger
+batches fit, produced finite loss, and saved checkpoints, so capacity was not the limiting factor;
+MPS compute scaled slightly worse than linearly. Keep `--batch_size 1` for this configuration.
+The sweep also fixed an LTX bug where VAE channel statistics were incorrectly reshaped using the
+runtime batch size instead of broadcasting across it.
+
+Benchmark baselines live in `.agents/skills/benchmark/baselines/` (micro:
 `ltx_transformer_fwd_bwd`, end-to-end: the `train_mps.sh` config); see the `benchmark` skill for
 running them against changes.
 
