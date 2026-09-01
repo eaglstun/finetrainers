@@ -1,6 +1,6 @@
 # finetrainers MPS — Batch 2: Measure, Speed Up, Generalize
 
-**Status:** 5A ✅ + 5C ✅ + 5D docs ✅ (2026-07-08) · 5B pending an idle machine · upstream PRs (5D.13) awaiting Eric's call · **Branch:** `apple-silicon-mps` · **Executor:** Fable
+**Status:** 5A ✅ + 5C ✅ + 5D docs ✅ · 5B in progress (paired optimizer trial ✅ 2026-08-31) · upstream PRs (5D.13) awaiting Eric's call · **Branch:** `apple-silicon-mps-phase-5b` · **Executor:** Codex
 **Author:** Claude (Fable 5) · **Date:** 2026-07-08 · **Predecessor:** `PORT_PLAN.md` (phases 1–4, ✅ complete)
 
 Batch 1 delivered _correctness_: LTX-Video LoRA trains on MPS (plain `python train.py`,
@@ -44,9 +44,9 @@ LTX-Video LoRA, 512×768×49, bf16, rank 32, gradient checkpointing ON, batch 1,
 
 ## Phase 5B — Cheap wins (only what 5A justifies; each change = one benchmark delta)
 
-4. **Gradient checkpointing OFF trial.** It trades compute for memory; on 64 GB unified
-   memory the trade may be backwards. If it fits, this is likely the single biggest
-   free speedup. Document the memory/speed pair both ways.
+4. ✅ **Gradient checkpointing OFF trial.** It trades compute for memory; at the reference
+   shape the backward graph allocates ~66 GB, swaps, and slows to ~80 s/iteration. Keep
+   checkpointing enabled at 512×768×49; this is a capacity requirement, not a speed knob.
 5. **Batch size sweep** (1→2→4) at fixed resolution — unified memory may allow real
    throughput gains before pressure.
 6. **`torch.set_float32_matmul_precision` / SDPA path check** — confirm bf16 SDPA hits
@@ -56,6 +56,21 @@ LTX-Video LoRA, 512×768×49, bf16, rank 32, gradient checkpointing ON, batch 1,
    iff it's a clean >10% win on the benchmark, otherwise document "not yet" and move on.
 8. ❌ **No hand-written Metal kernels.** Still the hypothetical Phase 6, still gated on
    5A proving a specific op is the bottleneck AND torch upstream won't fix it.
+
+### Phase 5B experiment log
+
+- **torch AdamW vs native bitsandbytes AdamW8bit (2026-08-31): no speed win.** Paired
+  30-step LTX 2B runs at the reference shape, on the same machine and stack, measured
+  14.381 s/step for torch AdamW and 14.252 s/step for AdamW8bit. The bnb result is
+  **+1.0% throughput**, inside the 10% end-to-end noise/regression threshold. Both runs
+  completed with finite loss and saved step-30 checkpoints; the bnb run set
+  `BNB_MPS_REQUIRE_NATIVE=1`. Treat bnb as a memory/capability option, not a speedup.
+- The older July torch baseline was 7.839 s/step. Its apparent 45% advantage over the
+  first bnb result disappeared in the same-session torch control, so it is retained as
+  historical data rather than used for a cross-date regression verdict.
+- Results: `ltx_lora_adamw.mps.e2e.json` and `ltx_lora_bnb8.mps.e2e.json` under the
+  benchmark skill's `baselines/` directory. The paired runs reused the same precomputed
+  condition/latent data; steady-state timing excludes two warmup steps.
 
 ## Phase 5C — Second model: Wan T2V LoRA
 

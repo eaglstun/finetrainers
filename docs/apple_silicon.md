@@ -109,9 +109,12 @@ step is ~5.5–7 s at this shape.
 LoRA training step is **~7–9 s** (e2e baseline steady-state 7.8 s/step; ~6–7 s observed on a fully
 idle machine). The raw transformer forward+backward is ~5.2 s of that (micro benchmark median
 5162 ms, cv 3.9%); the remainder is LoRA adapter compute, batch preparation, and per-step
-`.item()` syncs. The measured torch AdamW optimizer step is ~0.02 s. Step 1 is minutes-long
-(precomputation + MPS shader compilation) — always exclude it from timing. Re-run the benchmark
-when comparing torch AdamW with the bitsandbytes 8-bit path.
+`.item()` syncs. Step 1 is minutes-long (precomputation + MPS shader compilation) — always exclude
+it from timing. A same-session 30-step comparison on the 2026-08-31 stack measured 14.381 s/step
+with torch AdamW and 14.252 s/step with native bitsandbytes AdamW8bit (**+1.0% throughput**, inside
+the 10% end-to-end noise threshold). The 8-bit optimizer is therefore not a demonstrated speedup;
+use it for its reduced-state representation. These current-stack runs were slower overall than the
+July baseline, so only the paired optimizer delta is meaningful.
 
 Benchmark baselines live in `.claude/skills/benchmark/baselines/` (micro:
 `ltx_transformer_fwd_bwd`, end-to-end: the `train_mps.sh` config); see the `benchmark` skill for
