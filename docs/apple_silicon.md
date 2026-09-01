@@ -92,7 +92,7 @@ python -m pytest -s tests/mps/test_cpu_mps_parity.py
 
 The test skips automatically on machines without MPS, so it is safe in CI.
 
-## Performance notes (Batch 2 census, 2026-07-08)
+## Performance notes (Batch 2 census, 2026-07-08; precision audit 2026-09-01)
 
 **MPS fallback census: zero fallbacks.** A full LTX-Video LoRA run (T5-XXL text encoding, VAE
 video encoding, transformer forward/backward, AdamW, checkpointing) on torch 2.12.1 emitted no
@@ -109,11 +109,48 @@ step is ~5.5–7 s at this shape.
 LoRA training step is **~7–9 s** (e2e baseline steady-state 7.8 s/step; ~6–7 s observed on a fully
 idle machine). The raw transformer forward+backward is ~5.2 s of that (micro benchmark median
 5162 ms, cv 3.9%); the remainder is LoRA adapter compute, batch preparation, and per-step
-`.item()` syncs. The measured torch AdamW optimizer step is ~0.02 s. Step 1 is minutes-long
-(precomputation + MPS shader compilation) — always exclude it from timing. Re-run the benchmark
-when comparing torch AdamW with the bitsandbytes 8-bit path.
+`.item()` syncs. Step 1 is minutes-long (precomputation + MPS shader compilation) — always exclude
+it from timing. A same-session 30-step comparison on the 2026-08-31 stack measured 14.381 s/step
+with torch AdamW and 14.252 s/step with native bitsandbytes AdamW8bit (**+1.0% throughput**, inside
+the 10% end-to-end noise threshold). The 8-bit optimizer is therefore not a demonstrated speedup;
+use it for its reduced-state representation. These current-stack runs were slower overall than the
+July baseline, so only the paired optimizer delta is meaningful.
 
-Benchmark baselines live in `.claude/skills/benchmark/baselines/` (micro:
+**Batch size 1 is fastest at the reference shape.** A same-session 30-step sweep at
+512×768×49 with torch AdamW measured 14.066, 29.859, and 60.407 s/step for batch sizes 1, 2,
+and 4. After multiplying by batch size, useful throughput was 0.0711, 0.0670, and 0.0662
+samples/s: batch 2 was **5.8% slower** and batch 4 **6.9% slower** than batch 1. Both larger
+batches fit, produced finite loss, and saved checkpoints, so capacity was not the limiting factor;
+MPS compute scaled slightly worse than linearly. Keep `--batch_size 1` for this configuration.
+The sweep also fixed an LTX bug where VAE channel statistics were incorrectly reshaped using the
+runtime batch size instead of broadcasting across it.
+
+**bf16 attention does not get a bf16 kernel on MPS — SDPA runs in fp32 internally.** On
+torch 2.12.1, `F.scaled_dot_product_attention` dispatches to
+`aten::_scaled_dot_product_attention_math_for_mps` for **every** input dtype (bf16, fp16, fp32);
+MPS has no equivalent of CUDA's flash/mem-efficient backend selection, so there is nothing to
+tune. That op upcasts q/k/v to fp32, computes the whole attention there, and downcasts only the
+output: its result is **bitwise identical** to an fp32-accumulated decomposition and differs from
+a bf16-accumulated one (verified for bf16 and fp16). Consequences at LTX's shape (32 heads,
+sequence 2688): the S x S probability matrix is materialized in fp32 — ~924 MB per attention,
+against ~462 MB in bf16 — and `--transformer_dtype bf16` buys memory on the *weights* only, not
+inside attention. Separately, bf16 `matmul` on MPS already accumulates in fp32 in hardware
+(a 4096-term sum of 1/256 returns exactly 16.0), so a bf16 decomposition would lose precision
+only in storing the probabilities, not in either GEMM. Whether trading that for speed is worth it
+is an open timing question — see the 5B.6 entry in `docs/apple_silicon/NEXT_BATCH_PLAN.md`.
+
+**`--float32_matmul_precision` is inert on MPS.** `highest` / `high` / `medium` all produce an
+identical fp32 GEMM result (max abs error 4.730e-04 against an fp64 reference at 2688x2048 @
+2048x2048). The knob gates CUDA TF32, which has no Apple-GPU counterpart. Leave it at the default.
+
+**LoRA adapters train in fp32, by upstream design.** On the non-data-sharded path — which is the
+whole MPS lane — `SFTTrainer` calls `cast_training_params([transformer], dtype=torch.float32)`
+(`finetrainers/trainer/sft_trainer/trainer.py`), so `lora_A`/`lora_B` are fp32 while the base
+layer is bf16, and every adapter matmul runs in fp32 with bf16<->fp32 conversions around it. This
+is the standard fp32-master-weights pattern, not a Mac-specific bug, but on MPS it is a real
+per-step cost: 4 target modules x 28 blocks x 2 adapter GEMMs over 2688-token activations.
+
+Benchmark baselines live in `.agents/skills/benchmark/baselines/` (micro:
 `ltx_transformer_fwd_bwd`, end-to-end: the `train_mps.sh` config); see the `benchmark` skill for
 running them against changes.
 
