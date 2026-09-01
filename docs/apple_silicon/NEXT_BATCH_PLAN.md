@@ -1,6 +1,6 @@
 # finetrainers MPS — Batch 2: Measure, Speed Up, Generalize
 
-**Status:** 5A ✅ + 5C ✅ + 5D docs ✅ · 5B in progress (paired optimizer trial ✅ 2026-08-31; batch-size sweep ✅ 2026-09-01) · upstream PRs (5D.13) awaiting Eric's call · **Branch:** `apple-silicon-mps-phase-5b` · **Executor:** Codex
+**Status:** 5A ✅ + 5C ✅ + 5D docs ✅ · 5B in progress (paired optimizer trial ✅ 2026-08-31; batch-size sweep ✅ 2026-09-01; 5B.6 precision audit ✅ / its timing follow-up blocked on an idle machine 2026-09-01) · upstream PRs (5D.13) awaiting Eric's call · **Branch:** `apple-silicon-mps-phase-5b` · **Executor:** Codex
 **Author:** Claude (Fable 5) · **Date:** 2026-07-08 · **Predecessor:** `PORT_PLAN.md` (phases 1–4, ✅ complete)
 
 Batch 1 delivered _correctness_: LTX-Video LoRA trains on MPS (plain `python train.py`,
@@ -49,15 +49,39 @@ LTX-Video LoRA, 512×768×49, bf16, rank 32, gradient checkpointing ON, batch 1,
    checkpointing enabled at 512×768×49; this is a capacity requirement, not a speed knob.
 5. ✅ **Batch size sweep** (1→2→4) at fixed resolution — no throughput gain. Keep batch
    size 1 at 512×768×49; larger batches fit but scale slightly worse than linearly.
-6. **`torch.set_float32_matmul_precision` / SDPA path check** — confirm bf16 SDPA hits
-   the fast MPS kernel (not math fallback); confirm no fp32 upcasts sneak into the LoRA
-   matmuls.
+6. ⚠️ **`torch.set_float32_matmul_precision` / SDPA path check** — audit answered
+   (2026-09-01), and both suspicions confirmed: MPS SDPA runs attention in fp32 regardless
+   of input dtype, and the LoRA matmuls are fp32 by upstream design. The follow-on timing
+   question (is a bf16 attention decomposition actually faster on the real model?) is
+   **blocked on a quiet machine** — see the experiment log.
 7. **`torch.compile` on MPS — timeboxed probe only.** Known-shaky; one afternoon, keep
    iff it's a clean >10% win on the benchmark, otherwise document "not yet" and move on.
 8. ❌ **No hand-written Metal kernels.** Still the hypothetical Phase 6, still gated on
    5A proving a specific op is the bottleneck AND torch upstream won't fix it.
 
 ### Phase 5B experiment log
+
+- **SDPA / precision audit (2026-09-01): bf16 buys nothing inside attention.**
+  `F.scaled_dot_product_attention` on torch 2.12.1 dispatches to
+  `aten::_scaled_dot_product_attention_math_for_mps` for bf16, fp16 **and** fp32 — MPS has no
+  backend menu to select from. That op computes attention entirely in fp32: its output is
+  *bitwise identical* to an fp32-accumulated decomposition and differs from a bf16-accumulated
+  one, for both bf16 and fp16 inputs. So at LTX's shape the 2688x2688 probability matrix is
+  materialized in fp32 (~924 MB/attention vs ~462 MB in bf16). bf16 `matmul` on MPS already
+  accumulates in fp32 in hardware, so a bf16 decomposition would lose precision only in storing
+  the probabilities. `--float32_matmul_precision` is numerically inert on MPS (identical fp32
+  GEMM error across highest/high/medium — the knob gates CUDA TF32). And the LoRA adapters are
+  fp32 on purpose: `cast_training_params([transformer], torch.float32)` fires on the
+  non-data-sharded path, i.e. the entire MPS lane, so every adapter GEMM is fp32 with
+  bf16<->fp32 conversions around it (4 target modules x 28 blocks).
+  **Open, and the reason this item is not closed:** an unverified synthetic probe suggested a
+  bf16 math decomposition is ~2x faster than SDPA at the self-attention shape. That number is
+  **not trustworthy** — it was taken at load average 100 with a pytorch clang-tidy/lint run
+  saturating the machine, and the paired control on the real 2B model read 16.3 s/iter against
+  a 5.16 s July baseline, i.e. 3x contamination. `specs/ltx_transformer_fwd_bwd_mathsdpa.py`
+  (written, unmeasured) is the drop-in variant; re-run it paired against
+  `specs/ltx_transformer_fwd_bwd.py` in one session on an idle machine before believing any
+  delta. Check `sysctl -n vm.loadavg` first.
 
 - **Batch size 1→2→4 sweep (2026-09-01): batch 1 wins.** Same-session 30-step LTX 2B
   torch AdamW runs at 512×768×49, excluding two warmup steps, measured 14.066, 29.859,
